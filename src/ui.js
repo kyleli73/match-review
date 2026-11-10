@@ -1,8 +1,8 @@
-import { PHASE_KEYS, DEFAULT_PHASES, MATCH_LEN } from './metrics.js';
+import { PHASE_KEYS, DEFAULT_PHASES, MATCH_LEN, ELEMENT_LIMIT, TIP_POINTS } from './metrics.js';
 
-export const COLORS = { purple: '#a855f7', green: '#22c55e', other: '#9ca3af' };
+export const COLORS = { pollen: '#facc15', red: '#ef4444', blue: '#3b82f6', other: '#9ca3af' };
 const ACCENT = '#14b8a6';
-const BANDS = { auto: 'rgba(20,184,166,.20)', transition: 'rgba(148,163,184,.14)', teleop: 'rgba(59,130,246,.12)', endgame: 'rgba(245,158,11,.20)' };
+const BANDS = { auto: 'rgba(20,184,166,.20)', transition: 'rgba(148,163,184,.14)', teleop: 'rgba(59,130,246,.12)', flower: 'rgba(245,158,11,.20)' };
 
 export function el(tag, props = {}, ...kids) {
   const n = document.createElement(tag);
@@ -42,10 +42,11 @@ export function renderMatchTable(box, rows, { onOpen, onDelete }) {
   box.replaceChildren();
   if (!rows.length) return box.append(el('p', { class: 'muted' }, 'No matches yet. Load a video above to get started.'));
   box.append(table(
-    [['Match'], ['Teams'], ['Alliance'], ['Shots', 1], ['Purple', 1], ['Green', 1], ['Balls/s', 1], ['Peak 5s', 1], ['Cycle s', 1], ['']],
+    [['Match'], ['Teams'], ['Alliance'], ['Shots', 1], ['Pollen', 1], ['Red', 1], ['Blue', 1], ['Tips', 1], ['Balls/s', 1], ['Peak 5s', 1], ['Cycle s', 1], ['']],
     rows.map(({ match: m, m: x }) => el('tr', {},
       el('td', {}, m.matchNo), el('td', {}, (m.teams || []).join(', ')), el('td', {}, m.alliance),
-      el('td', { class: 'num' }, x.total), el('td', { class: 'num' }, x.byColor.purple), el('td', { class: 'num' }, x.byColor.green),
+      el('td', { class: 'num' }, x.total), el('td', { class: 'num' }, x.byColor.pollen), el('td', { class: 'num' }, x.byColor.red), el('td', { class: 'num' }, x.byColor.blue),
+      el('td', { class: 'num' }, x.tips.total),
       el('td', { class: 'num' }, fmt(x.rate, 3)), el('td', { class: 'num' }, fmt(x.burst.rate, 1)), el('td', { class: 'num' }, fmt(x.avgCycleTime, 1)),
       el('td', {}, el('button', { class: 'primary', onclick: () => onOpen(m.id) }, 'Open'), ' ',
         el('button', { class: 'danger', onclick: () => onDelete(m.id) }, 'Delete'))))));
@@ -55,27 +56,35 @@ export function renderTeamTable(box, aggs) {
   box.replaceChildren();
   if (!aggs.length) return box.append(el('p', { class: 'muted' }, 'Team averages appear once matches have teams.'));
   box.append(table(
-    [['Team'], ['Matches', 1], ['Shots', 1], ['Avg balls/s', 1], ['Avg peak 5s', 1], ['Avg cycle s', 1]],
+    [['Team'], ['Matches', 1], ['Shots', 1], ['Avg tips', 1], ['Avg balls/s', 1], ['Avg peak 5s', 1], ['Avg cycle s', 1]],
     aggs.map((a) => el('tr', {}, el('td', {}, a.team), el('td', { class: 'num' }, a.matches), el('td', { class: 'num' }, a.totalShots),
-      el('td', { class: 'num' }, fmt(a.avgRate, 3)), el('td', { class: 'num' }, fmt(a.avgPeak, 2)), el('td', { class: 'num' }, fmt(a.avgCycleTime, 1))))));
+      el('td', { class: 'num' }, fmt(a.avgTips, 1)), el('td', { class: 'num' }, fmt(a.avgRate, 3)), el('td', { class: 'num' }, fmt(a.avgPeak, 2)), el('td', { class: 'num' }, fmt(a.avgCycleTime, 1))))));
 }
 
 export function renderMetrics(cardsBox, phaseBox, m) {
-  const stat = (v, label) => el('div', { class: 'stat' }, el('b', {}, v), el('span', {}, label));
+  const stat = (v, label, cls = '') => el('div', { class: `stat ${cls}` }, el('b', {}, v), el('span', {}, label));
   cardsBox.replaceChildren(
-    stat(m.total, `shots (${m.byColor.purple} purple, ${m.byColor.green} green)`),
+    stat(m.total, `launches (${m.byColor.pollen} pollen, ${m.byColor.red} red, ${m.byColor.blue} blue)`),
     stat(fmt(m.rate, 3), 'balls/sec, whole match'),
     stat(fmt(m.burst.rate, 1), `peak 5 s burst (${m.burst.count} balls)`),
     stat(m.cycleCount, 'cycles'),
     stat(m.avgCycleTime == null ? '-' : `${fmt(m.avgCycleTime, 1)} s`, 'avg cycle time (start to start)'),
-    stat(fmt(m.avgBallsPerCycle, 1), 'balls per cycle'),
+    stat(fmt(m.avgBallsPerCycle, 1), m.overLimitCycles
+      ? `balls per cycle - WARNING: ${m.overLimitCycles} cycle(s) over ${ELEMENT_LIMIT} (possible control violation or two robots merged)`
+      : 'balls per cycle', m.overLimitCycles ? 'warn' : ''),
+    stat(`${m.tips.total} (${m.tips.auto} auto, ${m.tips.teleop} teleop)`, 'HIVE tips'),
+    stat(fmt(m.launchesPerTip, 1), 'launches per tip'),
+    stat(m.hivePoints, `est. HIVE points (${TIP_POINTS} per tip)`),
+    el('div', { class: 'stat wide' }, ...Object.entries(m.rp).map(([k, r]) => el('label', { class: 'rp' },
+      `${k === 'pollinator1' ? 'POLLINATOR 1' : 'POLLINATOR 2'}: ${Math.min(r.got, r.need)}/${r.need} tips${r.met ? ' - RP earned' : ''}`,
+      el('progress', { max: r.need, value: Math.min(r.got, r.need) })))),
   );
   phaseBox.replaceChildren(table(
-    [['Phase'], ['Purple', 1], ['Green', 1], ['Total', 1], ['Balls/s', 1]],
+    [['Phase'], ['Pollen', 1], ['Red', 1], ['Blue', 1], ['Launches', 1], ['Tips', 1], ['Balls/s', 1]],
     PHASE_KEYS.map((k) => {
       const p = m.byPhase[k];
-      return el('tr', {}, el('td', {}, k), el('td', { class: 'num' }, p.purple), el('td', { class: 'num' }, p.green),
-        el('td', { class: 'num' }, p.count), el('td', { class: 'num' }, fmt(p.rate, 3)));
+      return el('tr', {}, el('td', {}, k), el('td', { class: 'num' }, p.pollen), el('td', { class: 'num' }, p.red), el('td', { class: 'num' }, p.blue),
+        el('td', { class: 'num' }, p.count), el('td', { class: 'num' }, p.tips), el('td', { class: 'num' }, fmt(p.rate, 3)));
     })));
 }
 
@@ -84,10 +93,10 @@ export function renderEventList(box, events, selectedId, h) {
   if (!events.length) return box.append(el('p', { class: 'muted' }, 'No events. Press A while the video is paused on a shot to add one.'));
   for (const e of events) {
     const sel = el('select', { 'aria-label': 'color', onchange: (ev) => h.onColor(e.id, ev.target.value), onclick: (ev) => ev.stopPropagation() },
-      ['purple', 'green', 'other'].map((c) => el('option', { value: c, selected: c === e.color }, c)));
+      (e.kind === 'tip' ? ['other'] : ['pollen', 'red', 'blue', 'other']).map((c) => el('option', { value: c, selected: c === e.color }, c)));
     box.append(el('div', { class: `ev${e.id === selectedId ? ' sel' : ''}`, 'data-id': e.id, onclick: () => h.onSelect(e.id) },
       el('span', { class: 'mono' }, fmtTime(e.t)),
-      el('span', {}, el('i', { class: 'dot', style: `background:${COLORS[e.color]}` }), sel),
+      el('span', {}, e.kind === 'tip' ? el('b', {}, 'HIVE TIP') : [el('i', { class: 'dot', style: `background:${COLORS[e.color]}` }), sel]),
       el('span', { class: 'phase muted' }, e.phase), el('span', { class: 'src muted' }, e.source),
       el('button', { class: 'danger', title: 'Delete', 'aria-label': 'Delete event', onclick: (ev) => { ev.stopPropagation(); h.onDelete(e.id); } }, 'x')));
   }
@@ -127,6 +136,13 @@ export function drawTimeline(canvas, { events, playhead, selectedId, duration = 
   }
   for (const e of events) {
     const x = X(e.t);
+    if (e.kind === 'tip') {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x - 1, 16, 2, h - 26);
+      ctx.beginPath(); ctx.moveTo(x - 5, 16); ctx.lineTo(x + 5, 16); ctx.lineTo(x, 23); ctx.fill();
+      if (e.id === selectedId) ctx.strokeRect(x - 6, 14, 12, h - 22);
+      continue;
+    }
     ctx.fillStyle = COLORS[e.color] || COLORS.other;
     ctx.fillRect(x - 1.5, 20, 3, h - 34);
     if (e.source === 'manual') { ctx.beginPath(); ctx.arc(x, 18, 3, 0, 7); ctx.fill(); }
@@ -198,7 +214,7 @@ export class Calibrator {
     const r = this.canvas.getBoundingClientRect();
     const p = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
     if (this.tool.startsWith('pick')) {
-      this.onPick(this.tool === 'pickPurple' ? 'purple' : 'green', p);
+      this.onPick(this.tool.slice(4).toLowerCase(), p);
       this.tool = null; this.onTool(null);
     } else if (this.tool === 'line') {
       this.draft.push(p);

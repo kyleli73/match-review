@@ -34,14 +34,23 @@ test('findBlobs filters by area', () => {
 });
 
 test('maskFrame thresholds HSV and respects the ROI polygon', () => {
-  const purple = [150, 50, 200, 255];
+  const purple = [230, 200, 20, 255]; // yellow
   const red = [255, 0, 0, 255];
   const img = { width: 2, height: 1, data: new Uint8ClampedArray([...purple, ...red]) };
-  assert.deepEqual([...maskFrame(img, DEFAULT_COLORS.purple, null)], [1, 0]);
+  assert.deepEqual([...maskFrame(img, DEFAULT_COLORS.pollen, null)], [1, 0]);
   const both = { width: 2, height: 1, data: new Uint8ClampedArray([...purple, ...purple]) };
   const left = [{ x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 0.5, y: 1 }, { x: 0, y: 1 }];
-  assert.deepEqual([...maskFrame(both, DEFAULT_COLORS.purple, left)], [1, 0]);
-  assert.deepEqual([...maskFrame(both, DEFAULT_COLORS.green, null)], [0, 0]);
+  assert.deepEqual([...maskFrame(both, DEFAULT_COLORS.pollen, left)], [1, 0]);
+  assert.deepEqual([...maskFrame(both, DEFAULT_COLORS.blue, null)], [0, 0]);
+});
+
+test('red range wraps through hue 0', () => {
+  const px = (r, g, b) => [r, g, b, 255];
+  // hues: 350 (magenta-red), 0 (pure red), 10 (orange-red), 30 (orange), 330 (pink-magenta)
+  const img = { width: 5, height: 1, data: new Uint8ClampedArray([...px(255, 0, 42), ...px(255, 0, 0), ...px(255, 42, 0), ...px(255, 128, 0), ...px(255, 0, 128)]) };
+  assert.ok(DEFAULT_COLORS.red.hMin > DEFAULT_COLORS.red.hMax);
+  assert.deepEqual([...maskFrame(img, DEFAULT_COLORS.red, null)], [1, 1, 1, 0, 0]);
+  assert.deepEqual([...maskFrame(img, DEFAULT_COLORS.pollen, null)], [0, 0, 0, 0, 0]);
 });
 
 test('rangeFromPixel brackets the clicked color', () => {

@@ -1,4 +1,4 @@
-const CACHE = 'bubblotics-match-review-v2';
+const CACHE = 'bubblotics-match-review-v3';
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest', './icon.svg',
   './src/main.js', './src/ui.js', './src/detect.js', './src/track.js', './src/metrics.js',

@@ -1,8 +1,10 @@
 // Pure detection pipeline: no DOM access, runs in Node, the worker and the main thread.
 
+export const BALL_COLORS = ['pollen', 'red', 'blue'];
 export const DEFAULT_COLORS = {
-  purple: { hMin: 255, hMax: 300, sMin: 0.25, sMax: 1, vMin: 0.2, vMax: 1 },
-  green: { hMin: 80, hMax: 160, sMin: 0.35, sMax: 1, vMin: 0.25, vMax: 1 },
+  pollen: { hMin: 40, hMax: 70, sMin: 0.45, sMax: 1, vMin: 0.4, vMax: 1 },
+  red: { hMin: 340, hMax: 20, sMin: 0.5, sMax: 1, vMin: 0.3, vMax: 1 }, // wraps through 0
+  blue: { hMin: 200, hMax: 250, sMin: 0.4, sMax: 1, vMin: 0.25, vMax: 1 },
 };
 
 /** r,g,b 0..255 -> { h: 0..360, s: 0..1, v: 0..1 } */

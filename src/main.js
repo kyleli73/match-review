@@ -1,6 +1,6 @@
 import * as db from './db.js';
-import { DEFAULT_COLORS, rangeFromPixel, maskFrame, roiMask, findBlobs } from './detect.js';
-import { metrics, rollingRate, phaseAt, teamAggregates, DEFAULT_PHASES, MATCH_LEN } from './metrics.js';
+import { DEFAULT_COLORS, BALL_COLORS, rangeFromPixel, maskFrame, roiMask, findBlobs } from './detect.js';
+import { metrics, rollingRate, phaseAt, migrateMatch, teamAggregates, DEFAULT_PHASES, MATCH_LEN } from './metrics.js';
 import { matchesCsv, eventsCsv, exportJson, mergeImport } from './exporters.js';
 import { createMachine } from './machine.js';
 import { loadVideo, unloadVideo, seek, grabFrame, analyze, startCamera, createRecorder } from './video.js';
@@ -29,6 +29,9 @@ const newProfile = () => ({
 
 // ---------- persistence ----------
 let saveTimer;
+// Old profiles only have purple/green ranges: keep valid keys, fill missing ones from the BIOBUZZ presets.
+const migrateProfile = (p) => ({ ...p, colors: { ...clone(DEFAULT_COLORS), ...Object.fromEntries(Object.entries(p.colors || {}).filter(([k]) => k in DEFAULT_COLORS)) } });
+
 function saveMatch() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -94,7 +97,8 @@ function drawPlayhead() {
 // ---------- overlay / detection preview ----------
 const scratch = document.createElement('canvas');
 const tint = document.createElement('canvas');
-const TINT = { purple: [168, 85, 247], green: [34, 197, 94] };
+const TINT = { pollen: [250, 204, 21], red: [239, 68, 68], blue: [59, 130, 246] };
+const RING = { pollen: '#fde68a', red: '#fca5a5', blue: '#93c5fd' };
 
 function refreshOverlay() {
   const c = $('overlay');
@@ -115,7 +119,7 @@ function drawDetection(ctx, c) {
   const roi = roiMask(w, h, app.profile.roi);
   const out = new ImageData(w, h);
   const blobs = [];
-  for (const key of ['purple', 'green']) {
+  for (const key of BALL_COLORS) {
     const range = app.profile.colors[key];
     if (!range) continue;
     const mask = maskFrame(img, range, roi);
@@ -130,7 +134,7 @@ function drawDetection(ctx, c) {
   const k = c.width / w;
   ctx.lineWidth = Math.max(2, c.width / 400);
   for (const b of blobs) {
-    ctx.strokeStyle = b.color === 'purple' ? '#d8b4fe' : '#86efac';
+    ctx.strokeStyle = RING[b.color];
     ctx.beginPath(); ctx.arc(b.x * k, b.y * k, Math.sqrt(b.area / Math.PI) * k + 4, 0, 7); ctx.stroke();
   }
 }
@@ -157,11 +161,12 @@ const cal = new Calibrator($('overlay'), {
     document.querySelectorAll('[data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === tool));
     $('vidwrap').classList.toggle('drawing', !!tool);
     const hints = {
-      roi: 'Click the goal opening corners. Click the first point or press Enter to close.',
+      roi: 'Click the corners of the alliance HIVE cell opening. Click the first point or press Enter to close.',
       launch: 'Click the launch zone corners. Click the first point or press Enter to close.',
       line: 'Click two points to place the score line (balls crossing it count).',
-      pickPurple: 'Click a purple ball in the frame.',
-      pickGreen: 'Click a green ball in the frame.',
+      pickPollen: 'Click a yellow POLLEN ball in the frame.',
+      pickRed: 'Click a red NECTAR ball in the frame.',
+      pickBlue: 'Click a blue NECTAR ball in the frame.',
     };
     $('toolHint').textContent = hints[tool] || 'Choose a tool, then click on the video.';
     refreshOverlay();
@@ -177,7 +182,7 @@ function syncCalibUi() {
   $('maxArea').value = p.maxArea;
   $('startInfo').textContent = app.match ? `start = ${app.match.startOffset.toFixed(2)} s` : '';
   $('btnAnalyze').disabled = p.roi.length < 3 || (p.mode === 'line' && !p.scoreLine);
-  $('btnAnalyze').title = $('btnAnalyze').disabled ? 'Draw a goal ROI (and a score line in line mode) first' : '';
+  $('btnAnalyze').title = $('btnAnalyze').disabled ? 'Draw the HIVE cell (and a score line in line mode) first' : '';
 }
 
 function fillProfileSelect() {
@@ -255,12 +260,12 @@ async function runAnalysis() {
     });
     const auto = raw.map((e) => {
       const t = Math.round((e.t - offset) * 1000) / 1000;
-      return { id: uid('e'), t, color: e.color, source: 'auto', phase: phaseAt(t) };
+      return { id: uid('e'), t, kind: 'launch', color: e.color, source: 'auto', phase: phaseAt(t) };
     });
     app.match.events = [...app.match.events.filter((e) => e.source === 'manual'), ...auto].sort((a, b) => a.t - b.t);
     saveMatch();
     machine.send('done');
-    toast(`Found ${auto.length} shots`);
+    toast(`Found ${auto.length} launches`);
   } catch (e) {
     if (e.name === 'AbortError') toast('Analysis cancelled');
     else toast(`Analysis failed: ${e.message}`);
@@ -279,7 +284,14 @@ function selectEvent(id) {
 }
 function addEvent() {
   const t = Math.round(relTime() * 1000) / 1000;
-  const e = { id: uid('e'), t, color: $('manualColor').value, source: 'manual', phase: phaseAt(t) };
+  const e = { id: uid('e'), t, kind: 'launch', color: $('manualColor').value, source: 'manual', phase: phaseAt(t) };
+  app.match.events.push(e);
+  app.selectedId = e.id;
+  saveMatch(); refreshMetrics();
+}
+function addTip() {
+  const t = Math.round(relTime() * 1000) / 1000;
+  const e = { id: uid('e'), t, kind: 'tip', color: 'other', source: 'manual', phase: phaseAt(t) };
   app.match.events.push(e);
   app.selectedId = e.id;
   saveMatch(); refreshMetrics();
@@ -330,13 +342,15 @@ $('btnPlay').onclick = togglePlay;
 $('rateSel').onchange = (e) => { video.playbackRate = Number(e.target.value); };
 $('overlayToggle').onchange = refreshOverlay;
 $('btnAdd').onclick = addEvent;
+$('btnTip').onclick = addTip;
 $('btnDelete').onclick = () => deleteEvent();
 $('btnRecal').onclick = () => machine.send('recalibrate');
 $('btnSkip').onclick = () => machine.send('review');
 $('btnAnalyze').onclick = runAnalysis;
 $('btnCancel').onclick = () => app.abort?.abort();
 $('manualColor').onchange = (e) => store.set('manualColor', e.target.value);
-$('manualColor').value = store.get('manualColor', 'purple');
+$('manualColor').value = store.get('manualColor', 'pollen');
+if (!$('manualColor').value) $('manualColor').value = 'pollen'; // stale stored purple/green
 $('gapInput').value = store.get('gap', '3');
 $('gapInput').onchange = () => { store.set('gap', $('gapInput').value); refreshMetrics(); };
 $('fpsSel').value = store.get('fps', '15');
@@ -344,7 +358,7 @@ $('fpsSel').onchange = (e) => store.set('fps', e.target.value);
 
 document.querySelectorAll('[data-tool]').forEach((b) => { b.onclick = () => cal.setTool(b.dataset.tool); });
 $('btnClearShapes').onclick = () => { Object.assign(app.profile, { roi: [], launchRoi: [], scoreLine: null }); syncCalibUi(); refreshOverlay(); };
-$('btnResetColors').onclick = () => { app.profile.colors = clone(DEFAULT_COLORS); refreshOverlay(); toast('Colors reset to purple/green presets'); };
+$('btnResetColors').onclick = () => { app.profile.colors = clone(DEFAULT_COLORS); refreshOverlay(); toast('Colors reset to pollen/red/blue presets'); };
 $('profileName').oninput = (e) => { app.profile.name = e.target.value; };
 $('btnSaveProfile').onclick = async () => { await saveProfile(); toast('Profile saved'); };
 $('profileSelect').onchange = (e) => {
@@ -458,7 +472,7 @@ document.addEventListener('keydown', (e) => {
     arrowleft: () => step(-big), arrowright: () => step(big), a: addEvent, o: () => { $('overlayToggle').checked = !$('overlayToggle').checked; refreshOverlay(); },
     delete: () => deleteEvent(), backspace: () => deleteEvent(), enter: () => cal.finish(),
     '[': () => jumpEvent(-1), ']': () => jumpEvent(1),
-    1: () => setManual('purple'), 2: () => setManual('green'), 3: () => setManual('other'),
+    1: () => setManual('pollen'), 2: () => setManual('red'), 3: () => setManual('blue'), 4: () => setManual('other'), t: addTip,
   };
   if (acts[k]) { e.preventDefault(); acts[k](); }
 });
@@ -468,6 +482,8 @@ function setManual(c) { $('manualColor').value = c; store.set('manualColor', c);
 (async function init() {
   try {
     [app.matches, app.profiles] = await Promise.all([db.getAll('matches'), db.getAll('profiles')]);
+    app.matches = app.matches.map(migrateMatch);
+    app.profiles = app.profiles.map(migrateProfile);
   } catch (e) { toast(`Storage unavailable: ${e.message}`); }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
   render();

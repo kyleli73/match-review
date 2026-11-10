@@ -15,21 +15,27 @@ test('state machine follows idle -> loading -> calibrating -> analyzing -> revie
 const match = {
   id: 'm1', matchNo: 12, teams: [111, 222], alliance: 'red', updatedAt: 5,
   events: [
-    { id: 'e2', t: 41, color: 'green', source: 'manual', phase: 'teleop' },
-    { id: 'e1', t: 1.5, color: 'purple', source: 'auto', phase: 'auto' },
+    { id: 'e2', t: 41, kind: 'launch', color: 'red', source: 'manual', phase: 'teleop' },
+    { id: 'e1', t: 1.5, kind: 'launch', color: 'pollen', source: 'auto', phase: 'auto' },
   ],
 };
 
 test('eventsCsv sorts by time and quotes nothing unnecessary', () => {
   assert.equal(eventsCsv([match]),
-    'match_id,match_no,teams,alliance,event_id,t,color,phase,source\n' +
-    'm1,12,111 222,red,e1,1.500,purple,auto,auto\n' +
-    'm1,12,111 222,red,e2,41.000,green,teleop,manual\n');
+    'match_id,match_no,teams,alliance,event_id,t,kind,color,phase,source\n' +
+    'm1,12,111 222,red,e1,1.500,launch,pollen,auto,auto\n' +
+    'm1,12,111 222,red,e2,41.000,launch,red,teleop,manual\n');
 });
 
 test('matchesCsv row', () => {
   const lines = matchesCsv([match]).split('\n');
-  assert.equal(lines[1], 'm1,12,111 222,red,2,1,1,1,0,1,0,0.013,0.200,2,39.500,1.000');
+  assert.equal(lines[1], 'm1,12,111 222,red,2,1,1,0,1,0,1,0,0.013,0.200,2,39.500,1.000,0,0,0,,0,0,0');
+});
+
+test('mergeImport migrates old events from imports', () => {
+  const old = { id: 'o', matchNo: 1, updatedAt: 1, events: [{ id: 'a', t: 1, color: 'purple', source: 'auto', phase: 'auto' }] };
+  const r = mergeImport({ matches: [], profiles: [] }, JSON.parse(exportJson([old], [], 1)));
+  assert.deepEqual([r.matches[0].events[0].color, r.matches[0].events[0].kind], ['other', 'launch']);
 });
 
 test('mergeImport keeps newest by updatedAt and rejects foreign JSON', () => {

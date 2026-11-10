@@ -1,4 +1,4 @@
-import { maskFrame, findBlobs, roiMask } from './detect.js';
+import { maskFrame, findBlobs, roiMask, BALL_COLORS } from './detect.js';
 import { Tracker } from './track.js';
 
 let cfg = null;
@@ -25,7 +25,7 @@ self.onmessage = ({ data: m }) => {
   } else if (m.type === 'frame') {
     const img = { width: m.width, height: m.height, data: new Uint8ClampedArray(m.buffer) };
     const blobs = [];
-    for (const key of ['purple', 'green']) {
+    for (const key of BALL_COLORS) {
       const range = cfg.profile.colors[key];
       if (!range) continue;
       for (const b of findBlobs(maskFrame(img, range, roi), m.width, m.height, cfg.profile.minArea, cfg.profile.maxArea)) {

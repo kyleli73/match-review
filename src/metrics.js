@@ -1,17 +1,28 @@
-export const PHASE_KEYS = ['auto', 'transition', 'teleop', 'endgame'];
-// Endgame is carved out of the 2:00 teleop period, so phases do not overlap.
+export const PHASE_KEYS = ['auto', 'transition', 'teleop', 'flower'];
+export const ELEMENT_LIMIT = 4; // a robot may CONTROL at most 4 scoring elements (G408)
+export const TIP_POINTS = 20;
+export const RP_TIPS = { pollinator1: 4, pollinator2: 7 };
+// The flower phase is the last 60 s of the match (flower scoring allowed); phases do not overlap.
 export const DEFAULT_PHASES = {
   auto: { start: 0, end: 30 },
   transition: { start: 30, end: 38 },
-  teleop: { start: 38, end: 128 },
-  endgame: { start: 128, end: 158 },
+  teleop: { start: 38, end: 98 },
+  flower: { start: 98, end: 158 },
 };
 export const MATCH_LEN = 158;
 
 export function phaseAt(t, phases = DEFAULT_PHASES) {
   for (const k of PHASE_KEYS) if (t < phases[k].end) return k;
-  return 'endgame';
+  return 'flower';
 }
+
+/** Normalize stored events: old purple/green colors become 'other'; missing kind becomes 'launch'. */
+export function migrateEvent(e) {
+  const color = ['pollen', 'red', 'blue', 'other'].includes(e.color) ? e.color : 'other';
+  return { ...e, color, kind: e.kind === 'tip' ? 'tip' : 'launch' };
+}
+export const migrateMatch = (m) => ({ ...m, events: (m.events || []).map(migrateEvent) });
+export const isTip = (e) => e.kind === 'tip';
 
 /** Cluster events; a gap strictly greater than gapSec starts a new cycle. */
 export function findCycles(events, gapSec = 3) {
@@ -40,18 +51,20 @@ export function rollingRate(events, duration, window = 5, step = 1) {
  * avgCycleTime = mean start-to-start interval between consecutive cycles (null with < 2 cycles).
  * avgCycleSpan = mean first-to-last-shot time inside a cycle.
  */
-export function metrics(events, phases = DEFAULT_PHASES, opts = {}) {
+export function metrics(allEvents, phases = DEFAULT_PHASES, opts = {}) {
+  const tipEvents = allEvents.filter(isTip);
+  const events = allEvents.filter((e) => !isTip(e)); // tips never count as launches
   const gapSec = opts.gapSec ?? 3;
   const burstSec = opts.burstSec ?? 5;
   const lo = Math.min(...PHASE_KEYS.map((k) => phases[k].start));
   const hi = Math.max(...PHASE_KEYS.map((k) => phases[k].end));
   const duration = opts.duration ?? hi - lo;
 
-  const byColor = { purple: 0, green: 0, other: 0 };
+  const byColor = { pollen: 0, red: 0, blue: 0, other: 0 };
   const byPhase = {};
   for (const k of PHASE_KEYS) {
     const d = phases[k].end - phases[k].start;
-    byPhase[k] = { count: 0, purple: 0, green: 0, other: 0, duration: d, rate: 0 };
+    byPhase[k] = { count: 0, pollen: 0, red: 0, blue: 0, other: 0, tips: 0, duration: d, rate: 0 };
   }
   for (const e of events) {
     const c = e.color in byColor ? e.color : 'other';
@@ -60,6 +73,7 @@ export function metrics(events, phases = DEFAULT_PHASES, opts = {}) {
     byPhase[p].count++;
     byPhase[p][c]++;
   }
+  for (const e of tipEvents) byPhase[byPhase[e.phase] ? e.phase : phaseAt(e.t, phases)].tips++;
   for (const k of PHASE_KEYS) byPhase[k].rate = byPhase[k].count / byPhase[k].duration;
 
   const ts = events.map((e) => e.t).sort((a, b) => a - b);
@@ -72,7 +86,17 @@ export function metrics(events, phases = DEFAULT_PHASES, opts = {}) {
 
   const cycles = findCycles(events, gapSec);
   const n = cycles.length;
+  const tipCount = tipEvents.length;
+  const tips = { total: tipCount, auto: byPhase.auto.tips, teleop: tipCount - byPhase.auto.tips };
   return {
+    tips,
+    launchesPerTip: tipCount ? events.length / tipCount : null,
+    hivePoints: tipCount * TIP_POINTS,
+    rp: {
+      pollinator1: { need: RP_TIPS.pollinator1, got: tipCount, met: tipCount >= RP_TIPS.pollinator1 },
+      pollinator2: { need: RP_TIPS.pollinator2, got: tipCount, met: tipCount >= RP_TIPS.pollinator2 },
+    },
+    overLimitCycles: cycles.filter((c) => c.count > ELEMENT_LIMIT).length,
     total: events.length,
     duration,
     byColor,
@@ -106,6 +130,7 @@ export function teamAggregates(matches, opts = {}) {
       totalShots: ms.reduce((a, m) => a + m.total, 0),
       avgRate: mean(ms.map((m) => m.rate)),
       avgPeak: mean(ms.map((m) => m.burst.rate)),
+      avgTips: mean(ms.map((m) => m.tips.total)),
       avgCycleTime: mean(ms.filter((m) => m.avgCycleTime !== null).map((m) => m.avgCycleTime)),
     }))
     .sort((a, b) => b.avgRate - a.avgRate || a.team.localeCompare(b.team, undefined, { numeric: true }));

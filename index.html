@@ -69,8 +69,8 @@
       <div class="card" data-show="calibrating reviewing">
         <canvas id="timeline" height="64"></canvas>
         <div class="legend">
-          <span><i style="background:#a855f7"></i>purple</span><span><i style="background:#22c55e"></i>green</span><span><i style="background:#9ca3af"></i>other</span>
-          <span class="muted">bands: auto / transition / teleop / endgame</span>
+          <span><i style="background:#facc15"></i>pollen</span><span><i style="background:#ef4444"></i>red</span><span><i style="background:#3b82f6"></i>blue</span><span><i style="background:#fff"></i>HIVE tip</span><span><i style="background:#9ca3af"></i>other</span>
+          <span class="muted">bands: auto / transition / teleop / flower</span>
         </div>
       </div>
 
@@ -82,15 +82,16 @@
           <button id="btnSaveProfile">Save profile</button>
         </div>
         <div class="row tools">
-          <button data-tool="roi">Goal ROI</button>
+          <button data-tool="roi">Draw HIVE cell</button>
           <button data-tool="launch">Launch zone</button>
           <button data-tool="line">Score line</button>
-          <button data-tool="pickPurple">Pick purple</button>
-          <button data-tool="pickGreen">Pick green</button>
+          <button data-tool="pickPollen">Pick pollen</button>
+          <button data-tool="pickRed">Pick red</button>
+          <button data-tool="pickBlue">Pick blue</button>
           <button id="btnResetColors">Default colors</button>
           <button id="btnClearShapes">Clear shapes</button>
         </div>
-        <p id="toolHint" class="muted">Choose a tool, then click on the video. ROI: click corners, click the first point or press Enter to close.</p>
+        <p id="toolHint" class="muted">Choose a tool, then click on the video. HIVE cell: click the corners of your alliance's cell opening, click the first point or press Enter to close.</p>
         <div class="row">
           <label>Shot rule <select id="modeSel"><option value="region">Enters ROI</option><option value="line">Crosses line</option></select></label>
           <label>Min area <input id="minArea" type="number" min="1" step="1" size="4"></label>
@@ -114,12 +115,14 @@
 
       <div id="reviewPanel" class="card" data-show="reviewing">
         <div class="row">
-          <label>New event color <select id="manualColor"><option value="purple">purple (1)</option><option value="green">green (2)</option><option value="other">other (3)</option></select></label>
-          <button id="btnAdd" title="A">Add event here</button>
+          <label>New event color <select id="manualColor"><option value="pollen">pollen (1)</option><option value="red">red (2)</option><option value="blue">blue (3)</option><option value="other">other (4)</option></select></label>
+          <button id="btnAdd" title="A">Add launch here</button>
+          <button id="btnTip" title="T">Add HIVE tip (T)</button>
           <button id="btnDelete" title="Delete">Delete selected</button>
           <span class="grow"></span>
           <button id="btnRecal">Recalibrate / re-analyze</button>
         </div>
+        <p class="muted">A robot can hold at most 4 scoring elements at once; cycles with more than 4 launches are flagged.</p>
         <div id="eventList" class="events"></div>
       </div>
     </div>
@@ -150,7 +153,8 @@
     <tr><td><kbd>L</kbd> / <kbd>&rarr;</kbd></td><td>Step forward one frame (Shift: 1 s)</td></tr>
     <tr><td><kbd>K</kbd></td><td>Pause</td></tr>
     <tr><td><kbd>A</kbd></td><td>Add manual event at current frame</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Manual event color: purple / green / other</td></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>Manual launch color: pollen / red / blue / other</td></tr>
+    <tr><td><kbd>T</kbd></td><td>Add HIVE tip at current frame</td></tr>
     <tr><td><kbd>Delete</kbd></td><td>Remove selected event</td></tr>
     <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next event</td></tr>
     <tr><td><kbd>O</kbd></td><td>Toggle mask overlay</td></tr>
