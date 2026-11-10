@@ -1,0 +1,6 @@
+{
+  "name": "bubblotics-match-review",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Bubblotics Match Review",
+  "short_name": "Match Review",
+  "description": "Offline FTC match video analysis: shots, balls per second and cycle times.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1117",
+  "theme_color": "#0b1117",
+  "icons": [{ "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

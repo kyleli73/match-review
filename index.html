@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1117">
+<title>Bubblotics Match Review</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body data-state="idle">
+<header class="top">
+  <div class="brand"><img src="./icon.svg" alt="" width="28" height="28"><span><strong>Bubblotics</strong> Match Review</span></div>
+  <span id="stateBadge" class="badge">idle</span>
+  <nav>
+    <button id="btnLibrary" class="ghost">Library</button>
+    <button id="btnHelp" class="ghost" title="Keyboard shortcuts (?)">?</button>
+  </nav>
+</header>
+
+<main>
+  <section id="view-library" data-show="idle">
+    <form id="newMatch" class="card">
+      <h2>New match</h2>
+      <div class="row">
+        <label class="grow">Video file <input id="fileInput" type="file" accept="video/*"></label>
+        <button type="button" id="btnRecord">Record from camera</button>
+      </div>
+      <p id="pickedName" class="muted">No video selected.</p>
+      <div class="row">
+        <label>Match # <input id="matchNo" type="text" inputmode="numeric" size="5" required></label>
+        <label class="grow">Teams (comma separated) <input id="teams" type="text" placeholder="12345, 67890"></label>
+        <label>Alliance <select id="alliance"><option value="red">Red</option><option value="blue">Blue</option></select></label>
+        <button class="primary" type="submit">Load match</button>
+      </div>
+    </form>
+
+    <div class="card">
+      <div class="row between"><h2>Matches</h2>
+        <div class="row">
+          <button id="btnExportMatches">Matches CSV</button>
+          <button id="btnExportEvents">Events CSV</button>
+          <button id="btnExportJson">JSON</button>
+          <button id="btnImport">Import JSON</button>
+          <input id="importInput" type="file" accept="application/json,.json" hidden>
+        </div>
+      </div>
+      <div id="matchTable"></div>
+    </div>
+
+    <div class="card"><h2>Teams</h2><div id="teamTable"></div></div>
+  </section>
+
+  <section id="view-work" class="work" data-show="loading calibrating analyzing reviewing" hidden>
+    <div class="left">
+      <div id="loadingMsg" class="card" data-show="loading">Loading video...</div>
+      <div class="vidwrap" id="vidwrap"><video id="video" playsinline muted preload="auto"></video><canvas id="overlay"></canvas></div>
+
+      <div class="transport" data-show="calibrating reviewing">
+        <button id="btnStepBack" title="Back one frame (J / Left)">&#9664;</button>
+        <button id="btnPlay" title="Play / pause (Space)">Play</button>
+        <button id="btnStepFwd" title="Forward one frame (L / Right)">&#9654;</button>
+        <span id="timeLabel" class="mono"></span>
+        <select id="rateSel" title="Playback speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option></select>
+        <label class="inline"><input type="checkbox" id="overlayToggle"> Overlay (O)</label>
+      </div>
+
+      <div class="card" data-show="calibrating reviewing">
+        <canvas id="timeline" height="64"></canvas>
+        <div class="legend">
+          <span><i style="background:#a855f7"></i>purple</span><span><i style="background:#22c55e"></i>green</span><span><i style="background:#9ca3af"></i>other</span>
+          <span class="muted">bands: auto / transition / teleop / endgame</span>
+        </div>
+      </div>
+
+      <div id="calibPanel" class="card" data-show="calibrating">
+        <h2>Calibrate</h2>
+        <div class="row">
+          <label>Camera profile <select id="profileSelect"></select></label>
+          <label class="grow">Name <input id="profileName" type="text"></label>
+          <button id="btnSaveProfile">Save profile</button>
+        </div>
+        <div class="row tools">
+          <button data-tool="roi">Goal ROI</button>
+          <button data-tool="launch">Launch zone</button>
+          <button data-tool="line">Score line</button>
+          <button data-tool="pickPurple">Pick purple</button>
+          <button data-tool="pickGreen">Pick green</button>
+          <button id="btnResetColors">Default colors</button>
+          <button id="btnClearShapes">Clear shapes</button>
+        </div>
+        <p id="toolHint" class="muted">Choose a tool, then click on the video. ROI: click corners, click the first point or press Enter to close.</p>
+        <div class="row">
+          <label>Shot rule <select id="modeSel"><option value="region">Enters ROI</option><option value="line">Crosses line</option></select></label>
+          <label>Min area <input id="minArea" type="number" min="1" step="1" size="4"></label>
+          <label>Max area <input id="maxArea" type="number" min="1" step="10" size="5"></label>
+          <label>Analysis fps <select id="fpsSel"><option>10</option><option selected>15</option><option>20</option><option>30</option></select></label>
+        </div>
+        <div class="row">
+          <button id="btnStart">Match starts here</button>
+          <span id="startInfo" class="mono muted"></span>
+          <span class="grow"></span>
+          <button id="btnSkip">Review manually</button>
+          <button id="btnAnalyze" class="primary">Analyze</button>
+        </div>
+      </div>
+
+      <div id="analyzePanel" class="card" data-show="analyzing">
+        <h2>Analyzing</h2>
+        <progress id="progress" max="1" value="0"></progress>
+        <div class="row between"><span id="progressLabel" class="mono muted"></span><button id="btnCancel">Cancel</button></div>
+      </div>
+
+      <div id="reviewPanel" class="card" data-show="reviewing">
+        <div class="row">
+          <label>New event color <select id="manualColor"><option value="purple">purple (1)</option><option value="green">green (2)</option><option value="other">other (3)</option></select></label>
+          <button id="btnAdd" title="A">Add event here</button>
+          <button id="btnDelete" title="Delete">Delete selected</button>
+          <span class="grow"></span>
+          <button id="btnRecal">Recalibrate / re-analyze</button>
+        </div>
+        <div id="eventList" class="events"></div>
+      </div>
+    </div>
+
+    <aside class="right card" data-show="calibrating reviewing">
+      <h2>Metrics</h2>
+      <label class="inline">Cycle gap (s) <input id="gapInput" type="number" min="0.5" step="0.5" value="3"></label>
+      <div id="metricCards" class="cards"></div>
+      <div id="phaseTable"></div>
+      <h3>Rolling balls/sec (5 s window)</h3>
+      <canvas id="chart" height="130"></canvas>
+    </aside>
+  </section>
+</main>
+
+<dialog id="recDialog">
+  <h2>Record match</h2>
+  <video id="recPreview" playsinline muted></video>
+  <p id="recStatus" class="muted"></p>
+  <div class="row"><button id="recStart" class="primary">Start</button><button id="recStop" disabled>Stop &amp; use</button><button id="recCancel">Cancel</button></div>
+</dialog>
+
+<dialog id="helpDialog">
+  <h2>Keyboard shortcuts</h2>
+  <table class="kbd">
+    <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+    <tr><td><kbd>J</kbd> / <kbd>&larr;</kbd></td><td>Step back one frame (Shift: 1 s)</td></tr>
+    <tr><td><kbd>L</kbd> / <kbd>&rarr;</kbd></td><td>Step forward one frame (Shift: 1 s)</td></tr>
+    <tr><td><kbd>K</kbd></td><td>Pause</td></tr>
+    <tr><td><kbd>A</kbd></td><td>Add manual event at current frame</td></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Manual event color: purple / green / other</td></tr>
+    <tr><td><kbd>Delete</kbd></td><td>Remove selected event</td></tr>
+    <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next event</td></tr>
+    <tr><td><kbd>O</kbd></td><td>Toggle mask overlay</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Close polygon being drawn</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Cancel drawing tool / close dialogs</td></tr>
+    <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+  </table>
+  <div class="row"><button id="helpClose" class="primary">Close</button></div>
+</dialog>
+
+<div id="toast" role="status" hidden></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
