@@ -21,7 +21,11 @@ export function migrateEvent(e) {
   const color = ['pollen', 'red', 'blue', 'other'].includes(e.color) ? e.color : 'other';
   return { ...e, color, kind: e.kind === 'tip' ? 'tip' : 'launch' };
 }
-export const migrateMatch = (m) => ({ ...m, events: (m.events || []).map(migrateEvent) });
+export function migrateMatch(m) {
+  const { videoKey, ...rest } = m;
+  const source = m.source ?? (videoKey ? { kind: 'file', videoKey } : undefined);
+  return { ...rest, ...(source && { source }), events: (m.events || []).map(migrateEvent) };
+}
 export const isTip = (e) => e.kind === 'tip';
 
 /** Cluster events; a gap strictly greater than gapSec starts a new cycle. */

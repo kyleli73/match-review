@@ -50,6 +50,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .vidwrap video, .vidwrap canvas { display: block; width: 100%; height: 100%; }
 .vidwrap canvas { position: absolute; inset: 0; }
 .vidwrap.drawing canvas { cursor: crosshair; }
+.vidwrap iframe, .ytmount { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.vidwrap.yt canvas { pointer-events: none; }
+.vidwrap.yt.drawing canvas { pointer-events: auto; }
+.ytoffline { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #9ca3af; padding: 12px; }
+.ytbadge { background: #b91c1c; color: #fff; border-radius: 4px; padding: 0 5px; font-size: 11px; margin-left: 6px; vertical-align: middle; }
 .transport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 #timeLabel { min-width: 150px; }
 #timeline, #chart { width: 100%; display: block; cursor: pointer; }

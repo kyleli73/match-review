@@ -27,6 +27,16 @@ Push to GitHub, then Settings > Pages > Deploy from branch `main` / root. All UR
 
 State machine: `idle -> loading -> calibrating -> analyzing -> reviewing`; cancel goes back to calibrating.
 
+## Matches from YouTube
+
+Paste a YouTube link (watch, youtu.be, /live/, /shorts/; `t=` or `start=` timestamps like `1h2m3s` or `3723` work) in "New match" instead of choosing a file. Nothing is stored in IndexedDB for these matches; the library shows a YouTube badge and re-embeds the video on open. JSON export keeps the link, so another scout can import and open the same match directly (file matches still need their video re-attached).
+
+- **Manual review (any browser, needs internet).** The player is the YouTube embed. Seek to the start of the match and press "Match starts here"; a timestamp in the link pre-seeks there. Step is 1/30 s seeks, speeds are whatever YouTube offers. Click outside the player before using keyboard shortcuts, or the iframe keeps the keys.
+- **Auto-count (share this tab).** Browsers cannot read pixels from a YouTube iframe, so the app records its own tab with screen capture, plays the video at 1x from the match start and runs the same detector on frames of the player area. Draw the HIVE cell on the player as usual (color picking is unavailable; default colors are used). Choose "This tab" in the share dialog. Keep the tab visible, the player unobscured, and do not scroll or resize until the 158 s window ends. Stop sharing or press Cancel to end early (stopping sharing keeps what was found).
+- **Chrome is needed for auto-count** (Chrome/Edge desktop: `getDisplayMedia` with current-tab capture, plus Region Capture to crop to the player; other browsers fall back to cropping each frame in JS). iPad Safari has no screen capture, so only manual review works there.
+- **Accuracy depends on stream quality.** Use 720p or better and set the YouTube quality manually; livestream compression blurs small balls. Event times come from the player clock, so a few frames of capture latency are possible.
+- **Offline.** The app shell works offline; YouTube matches show "YouTube needs internet" instead of the player, but their events, metrics and edits stay usable. No YouTube resource is cached.
+
 ## Metrics definitions
 
 - balls/sec = launches / 158 s match length (per phase: launches / phase length). The flower phase is the last 60 s of the match (flower scoring allowed) and is counted separately, not inside teleop. HIVE tip events are excluded from balls/sec, burst and cycles.

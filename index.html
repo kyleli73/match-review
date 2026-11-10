@@ -29,6 +29,10 @@
       </div>
       <p id="pickedName" class="muted">No video selected.</p>
       <div class="row">
+        <label class="grow">or YouTube link <input id="ytUrl" type="text" placeholder="youtube.com/watch?v=..., youtu.be/..., /live/..., &amp;t=1h2m3s" autocomplete="off"></label>
+      </div>
+      <p id="ytNote" class="muted"></p>
+      <div class="row">
         <label>Match # <input id="matchNo" type="text" inputmode="numeric" size="5" required></label>
         <label class="grow">Teams (comma separated) <input id="teams" type="text" placeholder="12345, 67890"></label>
         <label>Alliance <select id="alliance"><option value="red">Red</option><option value="blue">Blue</option></select></label>
@@ -91,6 +95,7 @@
           <button id="btnResetColors">Default colors</button>
           <button id="btnClearShapes">Clear shapes</button>
         </div>
+        <p id="captureNote" class="muted" hidden></p>
         <p id="toolHint" class="muted">Choose a tool, then click on the video. HIVE cell: click the corners of your alliance's cell opening, click the first point or press Enter to close.</p>
         <div class="row">
           <label>Shot rule <select id="modeSel"><option value="region">Enters ROI</option><option value="line">Crosses line</option></select></label>
@@ -104,11 +109,13 @@
           <span class="grow"></span>
           <button id="btnSkip">Review manually</button>
           <button id="btnAnalyze" class="primary">Analyze</button>
+          <button id="btnAutoCount" class="primary" hidden>Auto-count (share this tab)</button>
         </div>
       </div>
 
       <div id="analyzePanel" class="card" data-show="analyzing">
         <h2>Analyzing</h2>
+        <p id="analyzeHint" class="muted" hidden></p>
         <progress id="progress" max="1" value="0"></progress>
         <div class="row between"><span id="progressLabel" class="mono muted"></span><button id="btnCancel">Cancel</button></div>
       </div>
@@ -161,6 +168,7 @@
     <tr><td><kbd>Enter</kbd></td><td>Close polygon being drawn</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>Cancel drawing tool / close dialogs</td></tr>
     <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+    <tr><td colspan="2" class="muted">YouTube matches: click outside the player first, or its own shortcuts take the keys.</td></tr>
   </table>
   <div class="row"><button id="helpClose" class="primary">Close</button></div>
 </dialog>

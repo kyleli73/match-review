@@ -44,7 +44,7 @@ export function renderMatchTable(box, rows, { onOpen, onDelete }) {
   box.append(table(
     [['Match'], ['Teams'], ['Alliance'], ['Shots', 1], ['Pollen', 1], ['Red', 1], ['Blue', 1], ['Tips', 1], ['Balls/s', 1], ['Peak 5s', 1], ['Cycle s', 1], ['']],
     rows.map(({ match: m, m: x }) => el('tr', {},
-      el('td', {}, m.matchNo), el('td', {}, (m.teams || []).join(', ')), el('td', {}, m.alliance),
+      el('td', {}, m.matchNo, m.source?.kind === 'youtube' ? el('span', { class: 'ytbadge', title: 'Opens from YouTube' }, 'YouTube') : ''), el('td', {}, (m.teams || []).join(', ')), el('td', {}, m.alliance),
       el('td', { class: 'num' }, x.total), el('td', { class: 'num' }, x.byColor.pollen), el('td', { class: 'num' }, x.byColor.red), el('td', { class: 'num' }, x.byColor.blue),
       el('td', { class: 'num' }, x.tips.total),
       el('td', { class: 'num' }, fmt(x.rate, 3)), el('td', { class: 'num' }, fmt(x.burst.rate, 1)), el('td', { class: 'num' }, fmt(x.avgCycleTime, 1)),

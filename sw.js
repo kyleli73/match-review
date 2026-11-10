@@ -1,8 +1,9 @@
-const CACHE = 'bubblotics-match-review-v3';
+const CACHE = 'bubblotics-match-review-v4';
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest', './icon.svg',
   './src/main.js', './src/ui.js', './src/detect.js', './src/track.js', './src/metrics.js',
   './src/exporters.js', './src/machine.js', './src/worker.js', './src/db.js', './src/video.js',
+  './src/youtube.js', './src/player.js', './src/capture.js',
 ];
 
 self.addEventListener('install', (e) => {

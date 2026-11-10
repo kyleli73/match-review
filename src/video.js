@@ -57,19 +57,36 @@ export function grabFrame(video, canvas, width = ANALYSIS_WIDTH) {
  * Step through [startOffset, startOffset + match length] with seeks at `fps`, pushing downscaled
  * frames through the detection worker. Resolves with raw events (absolute video seconds).
  */
-export async function analyze({ video, profile, startOffset, fps, onProgress, signal }) {
+/** Detection worker wrapper shared by seek-based analysis and live capture. */
+export async function createDetector(profile, width, height) {
   const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-  const canvas = document.createElement('canvas');
   const rpc = (msg, transfer) => new Promise((resolve, reject) => {
     worker.onmessage = (e) => resolve(e.data);
     worker.onerror = (e) => reject(new Error(e.message || 'worker error'));
     worker.postMessage(msg, transfer);
   });
+  try { await rpc({ type: 'init', profile, width, height }); } catch (e) { worker.terminate(); throw e; }
+  return {
+    async frame(t, img) {
+      const buffer = img.data.buffer;
+      return (await rpc({ type: 'frame', t, width, height, buffer }, [buffer])).events;
+    },
+    close: () => worker.terminate(),
+  };
+}
+
+/**
+ * Step through [startOffset, startOffset + match length] with seeks at `fps`, pushing downscaled
+ * frames through the detection worker. Resolves with raw events (absolute video seconds).
+ */
+export async function analyze({ video, profile, startOffset, fps, onProgress, signal }) {
+  const canvas = document.createElement('canvas');
+  let det;
   try {
     video.pause();
     const width = ANALYSIS_WIDTH;
     const height = Math.round((width * video.videoHeight) / video.videoWidth);
-    await rpc({ type: 'init', profile, width, height });
+    det = await createDetector(profile, width, height);
     const t0 = Math.max(0, startOffset);
     const t1 = Math.min(video.duration, startOffset + MATCH_LEN + 2);
     const step = 1 / fps;
@@ -79,15 +96,12 @@ export async function analyze({ video, profile, startOffset, fps, onProgress, si
       if (signal.aborted) throw new DOMException('cancelled', 'AbortError');
       const t = t0 + i * step;
       await seek(video, t);
-      const img = grabFrame(video, canvas, width);
-      const buffer = img.data.buffer;
-      const res = await rpc({ type: 'frame', t, width, height, buffer }, [buffer]);
-      events.push(...res.events);
+      events.push(...await det.frame(t, grabFrame(video, canvas, width)));
       onProgress?.(i / n, t);
     }
     return events;
   } finally {
-    worker.terminate();
+    det?.close();
   }
 }
 

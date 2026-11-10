@@ -3,7 +3,10 @@ import { DEFAULT_COLORS, BALL_COLORS, rangeFromPixel, maskFrame, roiMask, findBl
 import { metrics, rollingRate, phaseAt, migrateMatch, teamAggregates, DEFAULT_PHASES, MATCH_LEN } from './metrics.js';
 import { matchesCsv, eventsCsv, exportJson, mergeImport } from './exporters.js';
 import { createMachine } from './machine.js';
-import { loadVideo, unloadVideo, seek, grabFrame, analyze, startCamera, createRecorder } from './video.js';
+import { loadVideo, unloadVideo, grabFrame, analyze, startCamera, createRecorder } from './video.js';
+import { createFilePlayer, createYouTubePlayer, createOfflinePlayer } from './player.js';
+import { captureAnalyze, captureSupported } from './capture.js';
+import { parseYouTubeUrl } from './youtube.js';
 import {
   el, fmt, fmtTime, toast, renderMatchTable, renderTeamTable, renderMetrics, renderEventList,
   drawTimeline, timelineHit, drawChart, Calibrator,
@@ -19,6 +22,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
 };
 
+let player = null;
+const isYt = () => app.match?.source?.kind === 'youtube';
 const app = { matches: [], profiles: [], match: null, profile: null, selectedId: null, pendingBlob: null, abort: null, detect: { blobs: [] } };
 const machine = createMachine('idle', () => render());
 
@@ -85,13 +90,13 @@ function refreshMetrics() {
 }
 
 const sortedEvents = () => app.match.events.slice().sort((a, b) => a.t - b.t);
-const relTime = () => video.currentTime - (app.match?.startOffset ?? 0);
+const relTime = () => (player?.currentTime() ?? 0) - (app.match?.startOffset ?? 0);
 
 function drawPlayhead() {
-  if (!app.match) return;
+  if (!app.match || !player) return;
   drawTimeline($('timeline'), { events: app.match.events, playhead: relTime(), selectedId: app.selectedId });
-  $('timeLabel').textContent = `${fmtTime(relTime())} match | ${video.currentTime.toFixed(2)}s video`;
-  $('btnPlay').textContent = video.paused ? 'Play' : 'Pause';
+  $('timeLabel').textContent = `${fmtTime(relTime())} match | ${player.currentTime().toFixed(2)}s video`;
+  $('btnPlay').textContent = player.isPaused() ? 'Play' : 'Pause';
 }
 
 // ---------- overlay / detection preview ----------
@@ -102,13 +107,14 @@ const RING = { pollen: '#fde68a', red: '#fca5a5', blue: '#93c5fd' };
 
 function refreshOverlay() {
   const c = $('overlay');
-  if (!video.videoWidth) return;
-  if (c.width !== video.videoWidth) { c.width = video.videoWidth; c.height = video.videoHeight; }
+  const [w0, h0] = isYt() ? [1280, 720] : [video.videoWidth, video.videoHeight];
+  if (!w0) return;
+  if (c.width !== w0) { c.width = w0; c.height = h0; }
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, c.width, c.height);
   const s = machine.state;
   if (s !== 'calibrating' && s !== 'reviewing') return;
-  const on = $('overlayToggle').checked;
+  const on = $('overlayToggle').checked && !isYt(); // no pixel access to an iframe
   if (on) drawDetection(ctx, c);
   if (s === 'calibrating' || on) cal.draw(ctx);
 }
@@ -144,6 +150,7 @@ const cal = new Calibrator($('overlay'), {
   getProfile: () => app.profile,
   onChange: () => { syncCalibUi(); refreshOverlay(); },
   onPick: (key, p) => {
+    if (isYt()) return toast('Color picking needs pixels the iframe does not expose; default colors are used');
     const img = grabFrame(video, scratch);
     const cx = Math.round(p.x * (img.width - 1)), cy = Math.round(p.y * (img.height - 1));
     let r = 0, g = 0, b = 0, n = 0;
@@ -181,8 +188,21 @@ function syncCalibUi() {
   $('minArea').value = p.minArea;
   $('maxArea').value = p.maxArea;
   $('startInfo').textContent = app.match ? `start = ${app.match.startOffset.toFixed(2)} s` : '';
-  $('btnAnalyze').disabled = p.roi.length < 3 || (p.mode === 'line' && !p.scoreLine);
-  $('btnAnalyze').title = $('btnAnalyze').disabled ? 'Draw the HIVE cell (and a score line in line mode) first' : '';
+  const yt = isYt();
+  const btn = yt ? $('btnAutoCount') : $('btnAnalyze');
+  $('btnAnalyze').hidden = yt;
+  $('btnAutoCount').hidden = !yt;
+  $('captureNote').hidden = !yt;
+  document.querySelectorAll('[data-tool^="pick"]').forEach((b) => { b.hidden = yt; });
+  $('overlayToggle').closest('label').hidden = yt;
+  const offline = player?.offline;
+  btn.disabled = p.roi.length < 3 || (p.mode === 'line' && !p.scoreLine) || !!offline;
+  btn.title = btn.disabled ? 'Draw the HIVE cell (and a score line in line mode) first' : '';
+  if (yt) {
+    $('captureNote').textContent = offline ? 'YouTube needs internet. Events, metrics and edits still work; reconnect to play or auto-count.'
+      : captureSupported() ? 'Auto-count records this tab while the video plays at 1x from the match start. Keep this tab visible, the player unobscured, and do not scroll or resize until it finishes. Pick "This tab" in the share dialog. Needs desktop Chrome or Edge.'
+        : 'Auto-count is not available in this browser (no screen capture, e.g. iPad Safari). Manual review still works: step through the video and add events.';
+  }
 }
 
 function fillProfileSelect() {
@@ -197,19 +217,47 @@ async function openMatch(id) {
   if (!machine.send('load')) return;
   try {
     const match = app.matches.find((m) => m.id === id);
-    let blob = await db.getVideo(match.videoKey);
-    if (!blob) blob = await reattachVideo(match);
+    const src = match.source;
+    let blob = null;
+    if (src.kind === 'file') {
+      blob = await db.getVideo(src.videoKey);
+      if (!blob) blob = await reattachVideo(match);
+    }
     app.match = match;
     const stored = app.profiles.find((p) => p.id === match.cameraProfileId) || app.profiles.find((p) => p.id === store.get('lastProfile'));
     app.profile = stored ? clone(stored) : newProfile();
     app.selectedId = null;
-    const meta = await loadVideo(video, blob);
-    $('vidwrap').style.aspectRatio = `${meta.width} / ${meta.height}`;
-    $('vidwrap').style.maxWidth = `calc(62vh * ${meta.width / meta.height})`;
+    const wrap = $('vidwrap');
+    wrap.classList.toggle('yt', src.kind === 'youtube');
+    video.hidden = src.kind === 'youtube';
+    let startAt = match.startOffset;
+    if (src.kind === 'file') {
+      const meta = await loadVideo(video, blob);
+      wrap.style.aspectRatio = `${meta.width} / ${meta.height}`;
+      wrap.style.maxWidth = `calc(62vh * ${meta.width / meta.height})`;
+      player = createFilePlayer(video);
+    } else {
+      wrap.style.aspectRatio = '16 / 9';
+      wrap.style.maxWidth = `calc(62vh * ${16 / 9})`;
+      startAt = match.startOffset || src.startHint || 0;
+      const mount = el('div', { class: 'ytmount' });
+      wrap.prepend(mount);
+      try {
+        player = await createYouTubePlayer(mount, { videoId: src.videoId, start: startAt });
+      } catch (err) {
+        mount.replaceChildren(el('div', { class: 'ytoffline' }, 'YouTube needs internet'));
+        player = createOfflinePlayer(startAt);
+        toast(err.message);
+      }
+      const inner = player.destroy;
+      player.destroy = () => { inner(); mount.remove(); };
+    }
+    player.onTick(onTick);
+    $('rateSel').replaceChildren(...player.rates().map((r) => el('option', { value: r, selected: r === 1 }, String(r))));
     $('overlayToggle').checked = false;
     fillProfileSelect();
     machine.send(match.events.length ? 'loadedReview' : 'loaded');
-    await seek(video, match.startOffset);
+    await player.seek(startAt);
     refreshOverlay(); drawPlayhead();
   } catch (e) {
     toast(`Could not load video: ${e.message}`);
@@ -223,7 +271,7 @@ function reattachVideo(match) {
     const inp = el('input', { type: 'file', accept: 'video/*' });
     inp.onchange = async () => {
       if (!inp.files[0]) return reject(new Error('no video chosen'));
-      await db.putVideo(match.videoKey, inp.files[0]);
+      await db.putVideo(match.source.videoKey, inp.files[0]);
       resolve(inp.files[0]);
     };
     inp.oncancel = () => reject(new Error('no video chosen'));
@@ -233,31 +281,42 @@ function reattachVideo(match) {
 
 async function deleteMatch(id) {
   const m = app.matches.find((x) => x.id === id);
-  if (!confirm(`Delete match ${m.matchNo} and its video from this device?`)) return;
+  if (!confirm(`Delete match ${m.matchNo}${m.source.kind === 'file' ? ' and its video' : ''} from this device?`)) return;
   await db.del('matches', id);
-  await db.delVideo(m.videoKey);
+  if (m.source.kind === 'file') await db.delVideo(m.source.videoKey);
   app.matches = app.matches.filter((x) => x.id !== id);
   refreshLibrary();
 }
 
 function closeMatch() {
   if (app.match) { clearTimeout(saveTimer); app.match.updatedAt = Date.now(); db.put('matches', app.match); }
-  unloadVideo(video);
+  const wasYt = isYt();
+  player?.destroy();
+  player = null;
+  if (!wasYt) unloadVideo(video);
   machine.send('close');
 }
 
 async function runAnalysis() {
+  const yt = isYt();
+  if (yt && !captureSupported()) return toast('Screen capture is not available in this browser. Use manual review.');
   if (!machine.send('analyze')) return;
-  await saveProfile();
+  const saved = saveProfile().catch((e) => toast(`Save failed: ${e.message}`));
+  if (!yt) await saved;
   app.abort = new AbortController();
   const fps = Number($('fpsSel').value);
   const offset = app.match.startOffset;
   $('progress').value = 0;
+  $('progressLabel').textContent = '';
+  $('analyzeHint').hidden = !yt;
+  $('analyzeHint').textContent = 'Capturing this tab. Keep it visible and the player unobscured; the match plays at 1x (about 2.6 min).';
+  if (yt) window.scrollTo(0, 0);
+  const onProgress = (f, t) => { $('progress').value = f; $('progressLabel').textContent = `${Math.round(f * 100)}%  video ${t.toFixed(1)}s`; };
   try {
-    const raw = await analyze({
-      video, profile: clone(app.profile), startOffset: offset, fps, signal: app.abort.signal,
-      onProgress: (f, t) => { $('progress').value = f; $('progressLabel').textContent = `${Math.round(f * 100)}%  video ${t.toFixed(1)}s`; },
-    });
+    let raw, completed = true;
+    if (yt) ({ events: raw, completed } = await captureAnalyze({ player, region: $('vidwrap'), profile: clone(app.profile), startOffset: offset, fps, signal: app.abort.signal, onProgress }));
+    else raw = await analyze({ video, profile: clone(app.profile), startOffset: offset, fps, signal: app.abort.signal, onProgress });
+    await saved;
     const auto = raw.map((e) => {
       const t = Math.round((e.t - offset) * 1000) / 1000;
       return { id: uid('e'), t, kind: 'launch', color: e.color, source: 'auto', phase: phaseAt(t) };
@@ -265,13 +324,14 @@ async function runAnalysis() {
     app.match.events = [...app.match.events.filter((e) => e.source === 'manual'), ...auto].sort((a, b) => a.t - b.t);
     saveMatch();
     machine.send('done');
-    toast(`Found ${auto.length} launches`);
+    toast(completed ? `Found ${auto.length} launches` : `Sharing stopped early: kept ${auto.length} launches so far`);
   } catch (e) {
     if (e.name === 'AbortError') toast('Analysis cancelled');
+    else if (e.name === 'NotAllowedError') toast('Screen sharing was not granted');
     else toast(`Analysis failed: ${e.message}`);
     machine.send(e.name === 'AbortError' ? 'cancel' : 'error');
   }
-  await seek(video, offset).catch(() => {});
+  await player.seek(offset).catch(() => {});
   refreshOverlay(); drawPlayhead();
 }
 
@@ -279,7 +339,7 @@ async function runAnalysis() {
 function selectEvent(id) {
   app.selectedId = id;
   const e = app.match.events.find((x) => x.id === id);
-  if (e) seek(video, app.match.startOffset + e.t).then(() => { refreshOverlay(); drawPlayhead(); });
+  if (e) player.seek(app.match.startOffset + e.t).then(() => { refreshOverlay(); drawPlayhead(); });
   refreshMetrics();
 }
 function addEvent() {
@@ -311,18 +371,18 @@ function jumpEvent(dir) {
 
 // ---------- transport ----------
 async function step(dt) {
-  video.pause();
-  await seek(video, video.currentTime + dt);
+  player.pause();
+  await player.seek(player.currentTime() + dt);
   refreshOverlay(); drawPlayhead();
 }
-const togglePlay = () => (video.paused ? video.play() : video.pause());
+const togglePlay = () => (player.isPaused() ? player.play() : player.pause());
 
-function frameLoop() {
-  refreshOverlay(); drawPlayhead();
-  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(frameLoop);
+function onTick(ev) {
+  const s = machine.state;
+  if (ev === 'timeupdate' || ev === 'seeked' || ev === 'play' || ev === 'pause') {
+    if (s === 'calibrating' || s === 'reviewing') { drawPlayhead(); if (ev !== 'timeupdate') refreshOverlay(); }
+  } else { refreshOverlay(); drawPlayhead(); }
 }
-if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(frameLoop);
-for (const ev of ['timeupdate', 'seeked', 'play', 'pause']) video.addEventListener(ev, () => { if (machine.state === 'calibrating' || machine.state === 'reviewing') { drawPlayhead(); if (ev !== 'timeupdate') refreshOverlay(); } });
 
 // ---------- exports / library ----------
 function download(name, text, type) {
@@ -339,7 +399,7 @@ $('helpClose').onclick = () => $('helpDialog').close();
 $('btnStepBack').onclick = () => step(-FRAME);
 $('btnStepFwd').onclick = () => step(FRAME);
 $('btnPlay').onclick = togglePlay;
-$('rateSel').onchange = (e) => { video.playbackRate = Number(e.target.value); };
+$('rateSel').onchange = (e) => player?.setRate(Number(e.target.value));
 $('overlayToggle').onchange = refreshOverlay;
 $('btnAdd').onclick = addEvent;
 $('btnTip').onclick = addTip;
@@ -347,6 +407,7 @@ $('btnDelete').onclick = () => deleteEvent();
 $('btnRecal').onclick = () => machine.send('recalibrate');
 $('btnSkip').onclick = () => machine.send('review');
 $('btnAnalyze').onclick = runAnalysis;
+$('btnAutoCount').onclick = runAnalysis;
 $('btnCancel').onclick = () => app.abort?.abort();
 $('manualColor').onchange = (e) => store.set('manualColor', e.target.value);
 $('manualColor').value = store.get('manualColor', 'pollen');
@@ -372,7 +433,7 @@ $('minArea').onchange = (e) => { app.profile.minArea = Math.max(1, Number(e.targ
 $('maxArea').onchange = (e) => { app.profile.maxArea = Math.max(1, Number(e.target.value) || 2500); refreshOverlay(); };
 $('btnStart').onclick = () => {
   const old = app.match.startOffset;
-  const next = video.currentTime;
+  const next = player.currentTime();
   // events are match-relative, so keep their video position fixed when the start moves
   for (const e of app.match.events) { e.t = Math.round((e.t + old - next) * 1000) / 1000; e.phase = phaseAt(e.t); }
   app.match.startOffset = next;
@@ -382,7 +443,7 @@ $('btnStart').onclick = () => {
 $('timeline').addEventListener('click', (e) => {
   const hit = timelineHit($('timeline'), e.clientX, app.match.events);
   if (hit.eventId) selectEvent(hit.eventId);
-  else seek(video, app.match.startOffset + hit.t).then(() => { refreshOverlay(); drawPlayhead(); });
+  else player.seek(app.match.startOffset + hit.t).then(() => { refreshOverlay(); drawPlayhead(); });
 });
 window.addEventListener('resize', () => { if (app.match && machine.state !== 'idle') refreshMetrics(); });
 
@@ -391,21 +452,32 @@ $('fileInput').onchange = (e) => {
   app.pendingBlob = e.target.files[0] || null;
   $('pickedName').textContent = app.pendingBlob ? `Selected: ${app.pendingBlob.name}` : 'No video selected.';
 };
+$('ytUrl').oninput = () => {
+  const v = $('ytUrl').value.trim();
+  const y = v && parseYouTubeUrl(v);
+  $('ytNote').textContent = !v ? '' : y ? `YouTube video ${y.videoId}${y.start ? `, starts at ${fmtTime(y.start)}` : ''}` : 'Not a recognised YouTube link';
+};
 $('newMatch').onsubmit = async (e) => {
   e.preventDefault();
-  if (!app.pendingBlob) return toast('Pick or record a video first');
+  const ytText = $('ytUrl').value.trim();
+  const y = ytText ? parseYouTubeUrl(ytText) : null;
+  if (ytText && !y) return toast('Not a recognised YouTube link');
+  if (y && app.pendingBlob) return toast('Use either a video file or a YouTube link, not both');
+  if (!y && !app.pendingBlob) return toast('Pick or record a video, or paste a YouTube link');
   const id = uid('m');
   const match = {
     id, matchNo: $('matchNo').value.trim(), alliance: $('alliance').value,
-    teams: $('teams').value.split(/[,\s]+/).filter(Boolean), videoKey: `v_${id}`,
+    teams: $('teams').value.split(/[,\s]+/).filter(Boolean),
+    source: y ? { kind: 'youtube', videoId: y.videoId, url: ytText, startHint: y.start } : { kind: 'file', videoKey: `v_${id}` },
     cameraProfileId: store.get('lastProfile', null), startOffset: 0, events: [], updatedAt: Date.now(),
   };
-  await db.putVideo(match.videoKey, app.pendingBlob);
+  if (!y) await db.putVideo(match.source.videoKey, app.pendingBlob);
   await db.put('matches', match);
   app.matches.push(match);
   app.pendingBlob = null;
   e.target.reset();
   $('pickedName').textContent = 'No video selected.';
+  $('ytNote').textContent = '';
   openMatch(id);
 };
 
@@ -468,7 +540,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   const big = e.shiftKey ? 1 : FRAME;
   const acts = {
-    ' ': togglePlay, k: () => video.pause(), j: () => step(-big), l: () => step(big),
+    ' ': togglePlay, k: () => player.pause(), j: () => step(-big), l: () => step(big),
     arrowleft: () => step(-big), arrowright: () => step(big), a: addEvent, o: () => { $('overlayToggle').checked = !$('overlayToggle').checked; refreshOverlay(); },
     delete: () => deleteEvent(), backspace: () => deleteEvent(), enter: () => cal.finish(),
     '[': () => jumpEvent(-1), ']': () => jumpEvent(1),
